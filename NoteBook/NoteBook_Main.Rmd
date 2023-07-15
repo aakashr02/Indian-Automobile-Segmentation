@@ -1,0 +1,1039 @@
+---
+title: "Indian Automobile Strategic Grouping"
+author: "Aakash R"
+date: "2023-03-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### TEAM - M
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(cluster)
+```
+
+
+```{r}
+# Reading the Data
+df = read.csv('cars_ds_final_2021.csv')
+head(df)
+```
+
+```{r}
+# Dataset Dimensions
+dim(df)
+```
+
+
+```{r}
+# Creating a new feature 'Car' = 'Make' + 'Model'
+df$car=paste(df$Make,df$Model)
+```
+
+```{r}
+# Number of cars models in dataset
+length(unique(df$car))
+```
+
+
+```{r}
+# Datatype of each feature
+for (i in colnames(df)){
+  cat(i, ":", class(df[,i]), "  ")
+}
+```
+
+### Data Cleaning
+
+```{r}
+for (i in colnames(df)){
+  if(is.character(df[,i])){
+    df[i][df[i]==""]=NA
+  }
+}
+```
+
+```{r}
+df$Ex.Showroom_Price = as.numeric(gsub('Rs.','',gsub(',','',df$Ex.Showroom_Price)))
+df$Displacement = as.numeric(gsub('cc','',df$Displacement))
+df$Fuel_Tank_Capacity = as.numeric(gsub(' litres','',df$Fuel_Tank_Capacity))
+df$Height = as.numeric(gsub(' mm','',df$Height))
+df$Length = as.numeric(gsub(' mm','',df$Length))
+df$Width = as.numeric(gsub(' mm','',df$Width))
+df$Kerb_Weight = as.numeric(gsub(' kg','',df$Kerb_Weight))
+df$Ground_Clearance = as.numeric(gsub(' mm','',df$Ground_Clearance))
+df$Front_Track = as.numeric(gsub(' mm','',df$Front_Track))
+df$Rear_Track = as.numeric(gsub(' mm','',df$Rear_Track))
+df$Wheelbase = as.numeric(gsub(' mm','',df$Wheelbase))
+df$Boot_Space= as.numeric(gsub(' litres','',df$Boot_Space))
+df$Minimum_Turning_Radius = as.numeric(gsub(' meter','',df$Minimum_Turning_Radius))
+df$Battery = as.numeric(gsub(' km/full charge','',df$Battery))
+df$Gears = as.numeric(gsub('[A-Za-z]+','',df$Gears))
+df$Emission_Norm[df$Emission_Norm=="BS 6"] = "BS VI"
+
+df$ARAI_Certified_Mileage = as.numeric(gsub("\\?*",'',gsub(' km/litre','', df$ARAI_Certified_Mileage)))
+df$City_Mileage = as.numeric(gsub("\\?*",'',gsub(' km/litre','', df$City_Mileage)))
+df$Highway_Mileage = as.numeric(gsub("\\?*",'',gsub(' km/litre','', df$Highway_Mileage)))
+df$ARAI_Certified_Mileage_for_CNG = as.numeric(gsub("\\?*",'',gsub(' km/kg','', df$ARAI_Certified_Mileage_for_CNG)))
+
+Power = separate(df, col = Power, into = c("PS", "RPM"), sep = "@")
+Power$PS = as.numeric(gsub('[A-Za-z]+','',Power$PS))
+Power$RPM = as.numeric(gsub('[A-Za-z]+','',Power$RPM))
+good_RPM = which(!is.na(Power$RPM))
+power= Power$PS[good_RPM]*5000*0.98632/Power$RPM[good_RPM]
+Power$PS[good_RPM] = power
+sum(is.na(power))
+df$Power = Power$PS
+
+
+df$Torque = gsub("\\-[0-9]*",'',df$Torque)
+Torque = separate(df, col = Torque, into = c("NM","RPM"), sep = "@")
+Torque$NM = as.numeric(gsub('[A-Za-z]+','',Torque$NM))
+Torque$RPM = as.numeric(gsub('[A-Za-z]+','',Torque$RPM))
+good_RPM = which(!is.na(Torque$RPM))
+torque = Torque$NM[good_RPM]*5000/Torque$RPM[good_RPM]
+Torque$NM[good_RPM] = torque
+sum(is.na(torque))
+df$Torque = Torque$NM
+
+df[is.na(df$Power_Windows),'Power_Windows']= 'No'
+
+#highway, city, torque
+```
+
+```{r}
+df$ARAI_Certified_Mileage[df$Fuel_Type=="Petrol"] = df$ARAI_Certified_Mileage[df$Fuel_Type=="Petrol"]/0.79 
+df$ARAI_Certified_Mileage[df$Fuel_Type=="Diesel"] = df$ARAI_Certified_Mileage[df$Fuel_Type=="Diesel"]/0.832 
+df$ARAI_Certified_Mileage[is.na(df$ARAI_Certified_Mileage)] = df$ARAI_Certified_Mileage_for_CNG[is.na(df$ARAI_Certified_Mileage)] 
+
+df = select(df,- 'ARAI_Certified_Mileage_for_CNG')
+```
+
+
+```{r}
+head(df)
+```
+
+
+```{r}
+na_count = c()
+for(i in colnames(df)){
+  na_count = c(na_count, sum(is.na(df[,i])))
+}
+
+data.frame( 'Feature' = colnames(df) , 'NA count' = na_count)
+```
+
+
+```{r}
+# Percentage of NA values in each column
+na_count = (na_count/nrow(df))*100
+```
+
+
+```{r}
+# Barplot of % of NA values and number of columns
+colIdx_0 = sum(na_count==0)
+colIdx_5 = sum(na_count>0 & na_count<=5)
+colIdx_10 = sum(na_count>5 & na_count<=10)
+colIdx_25 = sum(na_count>10 & na_count<=25)
+colIdx_50 = sum(na_count>25 & na_count<=50)
+colIdx_100 = sum(na_count>50)
+barplot(c(colIdx_0, colIdx_5, colIdx_10, colIdx_25, colIdx_50, colIdx_100), names.arg = c('==0','<=5','<=10', '<=25', '<=50', '>50'), xlab = "Percentage of NA", ylab = "Number of Columns")
+```
+
+```{r}
+#Columns to be Removed where NA% > 10
+colIdx = which(na_count<=10)
+colnames(df)[-colIdx]
+```
+
+```{r}
+df = df[colIdx]
+head(df)
+```
+
+```{r}
+# New Dimensions after removing above columns
+dim(df)
+```
+
+
+## Feature Selection 
+
+```{r}
+for (i in colnames(df)){
+  if(is.character(df[,i])){
+    cat(i," (Unique Classes)  : ", length(unique(df[!is.na(df[i]),i])), "\n")  
+  }else{ 
+    cat(i, " (Variance) : ", var(df[,i], na.rm = TRUE), "\n")
+  }
+}
+```
+
+```{r}
+# Feature wise Distribution of Unique Classes 
+for(i in colnames(df)){
+  barplot(table(df[,i]), names.arg = row.names(table(df[,i])), xlab = i, ylab = 'Count')
+}
+```
+
+
+```{r}
+for( i in colnames(df)){
+  tbl = (table(df[,i])/nrow(df))*100
+  if(length(tbl[tbl>90])>0){
+    cat(i,":",tbl[tbl>90],"(% Dominant Class) : ",(sum(is.na(df[,i]))/nrow(df))*100,"(% NA)\n")  
+  }
+}
+```
+
+```{r}
+# Columns to be removed as they have only one class with more than 90% of occurence
+col_to_be_removed = c('Fuel_System','Child_Safety_Locks','Engine_Malfunction_Light','Low_Fuel_Warning','Multifunction_Display','Engine_Immobilizer')
+```
+
+```{r}
+# Removing columns
+df=select(df, - col_to_be_removed)
+head(df)
+```
+
+```{r}
+# New dimensions of data
+dim(df)
+```
+
+```{r}
+barplot(table(df[,"Front_Suspension"]), names.arg = row.names(table(df[,"Front_Suspension"])), xlab = "Front_Suspension" , ylab = 'Count')
+
+barplot(table(df[,"Rear_Suspension"]), names.arg = row.names(table(df[,"Rear_Suspension"])), xlab = "Rear_Suspension", ylab = 'Count')
+
+barplot(table(df[,"Ventilation_System"]), names.arg = row.names(table(df[,"Ventilation_System"])), xlab = "Ventilation_System", ylab = 'Count')
+
+```
+
+
+```{r}
+# Removing the columns as the have too many classes
+df = select(df, -c('Front_Suspension', 'Rear_Suspension','Ventilation_System'))
+head(df)
+```
+
+```{r}
+# Removing these columns as they dont have meaningful data ("Yes" class )
+df = select(df, -c('Odometer','Speedometer', 'Tripmeter', 'Tachometer', 'Door_Pockets','Audiosystem' ))
+```
+
+
+```{r}
+df = select(df, - c('Power_Steering','Boot.lid_Opener', 'Cup_Holders','Fuel.lid_Opener','Fuel_Gauge'))
+```
+
+```{r}
+# New Data Dimensions
+dim(df)
+```
+
+
+```{r}
+good_idx = which(!is.na(df$Power)&!is.na(df$Torque))
+cor(df$Power[1:100], df$Torque[1:100])
+```
+
+
+```{r}
+#df = select(df, - 'Torque')
+#head(df)
+```
+
+```{r}
+dim(df)
+```
+
+## REMOVING ROWS
+
+
+```{r}
+colnames(df)
+```
+
+```{r}
+mode=function(x){
+x =  x[!is.na(x)]
+u <- unique(x)
+tab <- tabulate(match(x, u))
+return (u[tab == max(tab)][1])
+}
+```
+
+
+```{r}
+library(dplyr)
+Model_features = df%>%group_by(car)%>% summarise(avg_milage = mean(ARAI_Certified_Mileage, na.rm = TRUE), Cylinder_Configuration = mode(Cylinder_Configuration), Cylinders=mode(Cylinders), Valves_Per_Cylinder = mode(Valves_Per_Cylinder), Engine_Location = mode(Engine_Location), Emission_Norm = mode(Emission_Norm), Fuel_Tank_Capacity = mean(Fuel_Tank_Capacity, na.rm=TRUE), Width=mean(Width, na.rm = TRUE), Doors = mode(Doors), Gears = mode(Gears), Front_Brakes = mode(Front_Brakes), Rear_Brakes = mode(Rear_Brakes), Seating_Capacity = mode(Seating_Capacity), Seats_Material=mode(Seats_Material), Wheelbase = mean(Wheelbase, na.rm=TRUE), Instrument_Console = mode(Instrument_Console), Handbrake = mode(Handbrake), Sun_Visor = mode(Sun_Visor))
+```
+
+```{r}
+head(Model_features)
+```
+
+
+```{r}
+
+sum(is.na(df$ARAI_Certified_Mileage))
+```
+
+
+
+```{r}
+for(i in 1:length(df$ARAI_Certified_Mileage)){
+  if(is.na(df$ARAI_Certified_Mileage[i])){
+    car_name = df$car[i]
+    mean_milage = Model_features$avg_milage[which(Model_features$car == car_name)[1]]
+    df$ARAI_Certified_Mileage[i] = mean_milage
+  }
+}
+head(df[(is.na(df$ARAI_Certified_Mileage)),])
+```
+
+```{r}
+sum(is.na(df$ARAI_Certified_Mileage))
+head(df[(is.na(df$ARAI_Certified_Mileage)),])
+df = df[!is.na(df$ARAI_Certified_Mileage),]
+```
+
+```{r}
+for(i in 1:length(df$Cylinder_Configuration)){
+  if(is.na(df$Cylinder_Configuration[i])){
+    car_name = df$car[i]
+    mean_cyl_config = Model_features$Cylinder_Configuration[which(Model_features$car == car_name)[1]]
+    df$Cylinder_Configuration[i] = mean_cyl_config
+  }
+}
+head(df[(is.na(df$Cylinder_Configuration)),])
+
+```
+
+```{r}
+sum(is.na(df$Cylinder_Configuration))
+df = df[!(is.na(df$Cylinder_Configuration)),]
+```
+
+
+```{r}
+for(i in 1:length(df$Cylinders)){
+  if(is.na(df$Cylinders[i])){
+    car_name = df$car[i]
+    mode_cyl = Model_features$Cylinders[which(Model_features$car == car_name)[1]]
+    df$Cylinders[i] = mode_cyl
+  }
+}
+head(df[(is.na(df$Cylinders)),])
+```
+
+```{r}
+df = df[!is.na(df$Cylinders),]
+```
+
+
+```{r}
+for(i in 1:length(df$Valves_Per_Cylinder)){
+  if(is.na(df$Valves_Per_Cylinder[i])){
+    car_name = df$car[i]
+    mode_cyl_val = Model_features$Valves_Per_Cylinder[which(Model_features$car == car_name)[1]]
+    df$Valves_Per_Cylinder[i] = mode_cyl_val
+  }
+}
+head(df[(is.na(df$Valves_Per_Cylinder)),])
+```
+
+```{r}
+df = df[!is.na(df$Valves_Per_Cylinder),]
+```
+
+
+```{r}
+for(i in 1:length(df$Engine_Location)){
+  if(is.na(df$Engine_Location[i])){
+    car_name = df$car[i]
+    mode_eng = Model_features$Engine_Location[which(Model_features$car == car_name)[1]]
+    df$Engine_Location[i] = mode_eng
+  }
+}
+head(df[(is.na(df$Engine_Location)),])
+```
+
+```{r}
+df = df[!is.na(df$Engine_Location),]
+```
+
+
+```{r}
+for(i in 1:length(df$Emission_Norm)){
+  if(is.na(df$Emission_Norm[i])){
+    car_name = df$car[i]
+    mode_emission = Model_features$Emission_Norm[which(Model_features$car == car_name)]
+    df$Emission_Norm[i] = mode_emission
+  }
+}
+head(df[is.na(df$Emission_Norm),])
+```
+
+```{r}
+for(i in 1:length(df$Fuel_Tank_Capacity)){
+  if(is.na(df$Fuel_Tank_Capacity[i])){
+    car_name = df$car[i]
+    fuel = Model_features$Fuel_Tank_Capacity[which(Model_features$car == car_name)[1]]
+    df$Fuel_Tank_Capacity[i] = fuel
+  }
+}
+head(df[(is.na(df$Fuel_Tank_Capacity)),])
+```
+
+```{r}
+df = df[!(is.na(df$Fuel_Tank_Capacity)),]
+dim(df)
+```
+
+```{r}
+for(i in 1:length(df$Width)){
+if(is.na(df$Width[i])){
+car_name = df$car[i]
+width = Model_features$Width[which(Model_features$car == car_name)[1]]
+df$Width[i] = width
+}
+}
+head(df[(is.na(df$Width)),])
+```
+```{r}
+sum(is.na(Model_features$Width))
+df = df[!(is.na(df$Width)),]
+dim(df)
+```
+
+
+```{r}
+for(i in 1:length(df$Doors)){
+if(is.na(df$Doors[i])){
+car_name = df$car[i]
+door = Model_features$Doors[which(Model_features$car == car_name)[1]]
+df$Doors[i] = door
+}
+}
+head(df[(is.na(df$Doors)),])
+```
+
+```{r}
+df = df[!is.na(df$Doors),]
+dim(df)
+```
+
+
+```{r}
+
+for(i in 1:length(df$Gears)){
+  if(is.na(df$Gears[i])){
+    car_name = df$car[i]
+    mode_gear = Model_features$Gears[which(Model_features$car == car_name)[1]]
+    df$Gears[i] = mode_gear
+  }
+}
+dim(df[(is.na(df$Gears)),])
+```
+
+```{r}
+df = df[!is.na(df$Gears),]
+dim(df)
+```
+
+
+```{r}
+for(i in 1:length(df$Seats_Material)){
+if(is.na(df$Seats_Material[i])){
+car_name = df$car[i]
+Seats_Material = Model_features$Seats_Material[which(Model_features$car == car_name)[1]]
+df$Seats_Material[i] = Seats_Material
+}
+}
+head(df[(is.na(df$Seats_Material)),])
+```
+
+```{r}
+for(i in 1:length(df$Rear_Brakes)){
+ if(is.na(df$Rear_Brakes[i])){
+ car_name = df$car[i]
+ Rear_Brakes = Model_features$Rear_Brakes[which(Model_features$car == car_name)[1]]
+ df$Rear_Brakes[i] = Rear_Brakes}
+}
+head(df[(is.na(df$Rear_Brakes)),])
+```
+
+```{r}
+df = df[!is.na(df$Rear_Brakes),]
+dim(df)
+```
+
+
+```{r}
+for(i in 1:length(df$Front_Brakes)){
+if(is.na(df$Front_Brakes[i])){
+car_name = df$car[i]
+Front_Brakes = Model_features$Front_Brakes[which(Model_features$car == car_name)[1]]
+df$Front_Brakes[i] = Front_Brakes
+}
+}
+head(df[(is.na(df$Front_Brakes)),])
+```
+
+
+
+```{r}
+for(i in 1:length(df$Wheelbase)){
+if(is.na(df$Wheelbase[i])){
+car_name = df$car[i]
+Wheelbase = Model_features$Wheelbase[which(Model_features$car == car_name)[1]]
+df$Wheelbase[i] = Wheelbase
+}
+}
+head(df[(is.na(df$Wheelbase)),])
+
+```
+
+```{r}
+df$Wheelbase[df$car=="Mini Cooper 3 Door"] = 2495
+df$Wheelbase[df$car=="Mini Cooper 5 Door"] = 2670
+df$Wheelbase[df$car=="Mini Convertible"] = 2495
+```
+
+
+```{r}
+for(i in 1:length(df$Handbrake)){
+if(is.na(df$Handbrake[i])){
+car_name = df$car[i]
+Handbrake = Model_features$Handbrake[which(Model_features$car == car_name)[1]]
+df$Handbrake[i] = Handbrake
+}
+}
+head(df[(is.na(df$Handbrake)),])
+```
+```{r}
+df$Handbrake[is.na(df$Handbrake)] = "Automatic"
+```
+
+
+```{r}
+for(i in 1:length(df$Sun_Visor)){
+if(is.na(df$Sun_Visor[i])){
+car_name = df$car[i]
+Sun_Visor = Model_features$Sun_Visor[which(Model_features$car == car_name)[1]]
+df$Sun_Visor[i] = Sun_Visor
+}
+}
+df$Sun_Visor[is.na(df$Sun_Visor)] = "Driver & Front Passenger"
+head(df[(is.na(df$Sun_Visor)),])
+
+```
+
+
+
+```{r}
+df$Seating_Capacity [is.na(df$Seating_Capacity)] =  Model_features$Seating_Capacity[Model_features$car=="Renault Lodgy"]
+```
+
+```{r}
+df$Instrument_Console[is.na(df$Instrument_Console)] = Model_features$Instrument_Console[Model_features$car=="Jaguar F-Type"]
+```
+
+
+```{r}
+head(Model_features)
+```
+
+```{r}
+dim(df)
+```
+
+```{r}
+length(unique(df$Model))
+```
+
+```{r}
+df$car[is.na(df$Body_Type)]
+df$Body_Type[is.na(df$Body_Type) ] = "SUV"
+```
+
+```{r}
+df$car[is.na(df$Drivetrain)]
+
+df$Drivetrain[is.na(df$Drivetrain)] = "RWD (Rear Wheel Drive)"
+```
+
+```{r}
+df = df[!is.na(df$Torque),]
+dim(df)
+```
+
+
+```{r}
+colSums(is.na(df))
+```
+
+```{r}
+dim(df)
+```
+
+```{r}
+l_D <- nrow(df)
+c_m <- length(unique(df$Make))
+c_c <- length(unique(df$Model))
+n_f <- ncol(df)
+
+fig <- ggplot(data.frame(x = c("Observations", "Makers", "Models", "Features"), y = c(l_D, c_m, c_c, n_f)),
+              aes(x = x, y = y, fill = x)) +
+       geom_col(show.legend = FALSE) +
+       theme_classic() +
+       scale_fill_manual(values = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728")) +
+       labs(x = NULL, y = "Counts", title = "Dataset Statistics", 
+            caption = "Source: Indian Cars Dataset") +
+       theme(plot.title = element_text(size = 16, face = "bold"))
+
+fig
+```
+
+```{r}
+length(unique(df$car))
+```
+
+## CLUSTERING
+
+```{r}
+head(df)
+```
+```{r}
+colnames(df)
+```
+
+
+```{r}
+#X = df[,-c(1,2,3,4,34)]
+models = df%>%group_by(car)%>% summarise(Ex.Showroom_Price=mean(Ex.Showroom_Price), Displacement=mode(Displacement) ,
+ARAI_Certified_Mileage = mean(ARAI_Certified_Mileage, na.rm = TRUE), 
+Cylinder_Configuration = mode(Cylinder_Configuration), 
+Cylinders=mode(Cylinders), 
+Valves_Per_Cylinder = mode(Valves_Per_Cylinder), 
+Engine_Location = mode(Engine_Location), 
+Emission_Norm = mode(Emission_Norm), 
+Drivetrain = mode(Drivetrain),
+Fuel_Type = mode(Fuel_Type),
+Height = mode(Height),
+Length = mode(Length),
+Width = mode(Width),
+Body_Type = mode(Body_Type),
+Fuel_Tank_Capacity = mean(Fuel_Tank_Capacity, na.rm=TRUE), 
+Width=mean(Width, na.rm = TRUE), 
+Doors = mode(Doors),
+Power_Windows = mode(Power_Windows),
+Power = mean(Power),
+Torque = mean(Torque,na.rm = TRUE),
+Type = mode(Type),
+Gears = mode(Gears), 
+Front_Brakes = mode(Front_Brakes), 
+Rear_Brakes = mode(Rear_Brakes), 
+Seating_Capacity = mode(Seating_Capacity), 
+Seats_Material=mode(Seats_Material), 
+Wheelbase = mean(Wheelbase, na.rm=TRUE), 
+Instrument_Console = mode(Instrument_Console), 
+Handbrake = mode(Handbrake), 
+Sun_Visor = mode(Sun_Visor))
+
+dim(models)
+```
+
+
+
+```{r}
+X=models
+```
+
+```{r}
+my_theme2 <- theme_classic() + 
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 16, hjust = 0.5),
+    plot.caption = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+my_theme1 <- theme_minimal() +
+  theme(
+    axis.line = element_line(color = "black"),
+    panel.grid.major = element_line(color = "lightgray"),
+    panel.grid.minor = element_line(color = "lightgray")
+  )
+
+ggplot(X, aes(x=Ex.Showroom_Price, y=Displacement)) +
+  geom_point(size=2, shape=23, color = "#1f77b4") +
+  my_theme1
+```
+```{r}
+ggplot(X, aes(x=Ex.Showroom_Price, y=Fuel_Tank_Capacity)) +
+  geom_point(size=2, shape=23, color = "#1f77b4")+
+  my_theme1
+```
+
+```{r}
+
+
+# Define custom color palette
+my_palette <- c("#008080", "#F08080", "#FFE4E1", "#F0E68C", "#B0E0E6")
+
+# Plot with custom theme and color palette
+ggplot(X, aes(x = Ex.Showroom_Price)) +
+  geom_freqpoly(bins = 10, color = my_palette[1], fill = my_palette[2], alpha = 0.5) +
+  labs(x = "Showroom price", y = "Frequency", 
+       title = "Frequency Distribution of Showroom Price",
+       caption = "Source: Indian Cars Dataset") +
+  scale_color_manual(values = my_palette) +
+  scale_fill_manual(values = my_palette) +
+  my_theme2
+```
+```{r}
+ggplot(X, aes(x = Power)) +
+  geom_freqpoly(bins = 10, color = my_palette[1], fill = my_palette[2], alpha = 0.5) +
+  labs(x = "Power", y = "Frequency", 
+       title = "Frequency Distribution of Power",
+       caption = "Source: Indian Cars Dataset") +
+  scale_color_manual(values = my_palette) +
+  scale_fill_manual(values = my_palette) +
+  my_theme2
+```
+
+```{r}
+freq_table=table(X$Cylinders)
+df_freq <- data.frame(cylinders = names(freq_table),
+                      frequency = as.numeric(freq_table))
+
+# Create the bar plot
+ggplot(df_freq, aes(x = cylinders, y = frequency)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  xlab("Number of cylinders") +
+  ylab("Frequency") +
+  ggtitle("Bar-Chart") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+```{r}
+freq_table=table(X$Cylinder_Configuration)
+df_freq <- data.frame(cylinders = names(freq_table),
+                      frequency = as.numeric(freq_table))
+
+# Create the bar plot
+ggplot(df_freq, aes(x = cylinders, y = frequency)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  xlab("Cylinder type") +
+  ylab("Frequency") +
+  ggtitle("Bar-Chart") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+```{r}
+freq_table=table(X$Handbrake)
+df_freq <- data.frame(cylinders = names(freq_table),
+                      frequency = as.numeric(freq_table))
+
+# Create the bar plot
+ggplot(df_freq, aes(x = cylinders, y = frequency)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  xlab("Handbrake type") +
+  ylab("Frequency") +
+  ggtitle("Bar-Chart") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+ggplot(X, aes(x = car, y = ARAI_Certified_Mileage)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "ARAI Certified Mileage by Car Model",
+       x = "Car Model", y = "ARAI Certified Mileage (km/l)")
+```
+```{r}
+
+freq_table <- table(X$Engine_Location)
+df_freq <- data.frame(Engine_Location = names(freq_table), Frequency = as.numeric(freq_table))
+
+# Create the pie chart
+ggplot(df_freq, aes(x="", y=Frequency, fill=Engine_Location)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start=0) +
+  ggtitle("ARAI_Certified_Mileage") +
+  theme_void() +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "right")
+
+
+```
+
+
+
+
+```{r}
+num_df = data.frame(models$Ex.Showroom_Price, models$ARAI_Certified_Mileage, models$Displacement, models$Cylinders, models$Valves_Per_Cylinder, models$Fuel_Tank_Capacity, models$Height, models$Length, models$Width, models$Doors, models$Gears, models$Power, models$Torque, models$Seating_Capacity, models$Wheelbase)
+
+library(corrplot)
+M = cor(num_df)
+corrplot(M, method="color")
+
+```
+
+### Dimensionality Reduction by Principal Component Analysis
+
+```{r}
+pcaX = num_df[,-c(3,4,6,7,8,9,14)]
+results <- prcomp(pcaX, scale = TRUE)
+results$rotation <- -1*results$rotation
+results$rotation
+```
+
+```{r}
+results$sdev^2 / sum(results$sdev^2)
+```
+
+```{r}
+# selecting the first 4 principal components
+pcX = results$x[,1:4]
+```
+
+```{r}
+head(models)
+```
+
+
+```{r}
+cat_df = data.frame(models$car, models$Cylinder_Configuration, models$Engine_Location, models$Emission_Norm, models$Drivetrain, models$Fuel_Type, models$Body_Type, models$Power_Windows, models$Type, models$Front_Brakes, models$Rear_Brakes, models$Seats_Material, models$Instrument_Console, models$Handbrake)
+```
+
+
+
+### Selecting Categorical Features by Information gain
+```{r}
+library(FSelector)
+ig = information.gain(formula(cat_df),cat_df)
+ig
+```
+
+
+
+```{r}
+# Selecting categorical features with high information gain
+col_Idx = c('Engine_Location', 'Drivetrain', 'Fuel_Type', 'Body_Type','Rear_Brakes', 'Seats_Material')
+```
+
+```{r}
+X = select(models, col_Idx)
+X = X[,-1]
+X = cbind(X,pcX)
+X = data.frame(X)
+```
+
+
+```{r}
+for(i in colnames(X)){
+  if(is.character(X[,i])){
+    X[,i] = factor(X[,i])
+  }
+}
+```
+
+
+```{r}
+head(X)
+```
+
+### GOWER'S DISTANCE 
+```{r}
+gower_df <- daisy(X, metric = "gower" )
+summary(gower_df)
+```
+
+### Silhoutte Graph
+```{r}
+silhouette <- c()
+for(i in 4:10){
+  pam_clusters = pam(as.matrix(gower_df),
+                 diss = TRUE,
+                 k = i)
+  silhouette = c(silhouette ,pam_clusters$silinfo$avg.width)
+}
+plot((4:10), silhouette, xlab = "Clusters", ylab = "Silhouette Width", col="red", cex=2, pch=20)
+lines((4:10), silhouette, lwd=2, col="red")
+```
+
+```{r}
+# Peak occurs for k=7
+pam_Clustering = pam(gower_df, diss = TRUE, k = 7)
+X[pam_Clustering$medoids, ]
+centroid_ids = c(77,165,50,12,93,105,186)
+```
+
+```{r}
+models$Clusters = pam_Clustering$clustering
+head(models)
+```
+
+```{r}
+# hatchbacks
+models[models$Clusters==1,]
+```
+
+```{r}
+# premium sedans
+models[models$Clusters==2,]
+```
+
+```{r}
+# sporty sedans
+models[models$Clusters==3,]
+```
+
+```{r}
+# luxury sedans
+models[models$Clusters==4,]
+```
+
+```{r}
+# luxury cross-overs and suvs
+models[models$Clusters==5,]
+```
+
+```{r}
+# cross-overs and  SUV
+models[models$Clusters==6,]
+```
+
+```{r}
+# low end sedans
+models[models$Clusters==7,]
+```
+
+```{r}
+cbind(models[centroid_ids, c(1, ncol(models))], labels=c('Hatchbacks','Premium Sedan','Sporty Sedan','Luxury Sedan','Luxury Crossovers & SUVs','Crossovers & SUVs','Basic Sedans') )
+```
+
+
+```{r}
+library(Rtsne)
+library(ggplot2)
+tsne_object <- Rtsne(gower_df, is_distance = TRUE)
+
+
+tsne_df <- tsne_object$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_Clustering$clustering))
+
+
+ggplot(aes(x = X, y = Y, fill = cluster), data = tsne_df) +
+  geom_point(aes(color=cluster), size=3)+
+  scale_fill_discrete(labels=c('Cluster 1 - Hatchbacks','Cluster 2 - Premium Sedan','Cluster 3 - Sporty Sedan','Cluster 4 - Luxury Sedan','Cluster 5 - Luxury Crossovers & SUVs','Cluster 6 - Crossovers & SUVs','Cluster 7 - Basic Sedans'), aesthetics=c("fill", "color"))+ theme(legend.key.height = unit(1,'cm'))
+
+
+```
+# K-PROTOTYPE CLUSTERING
+```{r}
+library(clustMixType)
+
+```
+
+
+# Elbow Graph
+```{r}
+wcss = c()
+for(i in 1:10){
+  KProtoModel = kproto(X,i)
+  wcss = c(wcss, KProtoModel$tot.withinss)
+}
+#plot(1:10, wcss)
+```
+
+```{r}
+plot(c(1:10), wcss, col="blue", cex=1.5, pch=16, xlab = "Number of Clusters", ylab = "Total Within Cluster Sum of Squares", main = "Elbow Graph")
+lines(c(1:10), wcss, lwd=2, col="blue")  
+```
+
+```{r}
+# Ecomomic Brands
+kpres = kproto(X,2)
+models[kpres$cluster==1,]
+
+```
+
+```{r}
+# Luxury Brands
+models[kpres$cluster==2,]
+```
+
+
+```{r}
+kpres$centers
+```
+
+
+
+```{r}
+library(Rtsne)
+library(ggplot2)
+tsne_object <- Rtsne(gower_df, is_distance = TRUE)
+
+
+tsne_df <- tsne_object$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(kpres$cluster))
+
+ggplot(aes(x = X, y = Y, fill = cluster), data = tsne_df) +
+  geom_point(aes(color=cluster), size=3)+
+  scale_fill_discrete(labels=c('Cluster 1 - Luxury Cars','Cluster 2 - Basic Cars'), aesthetics=c("fill", "color"))+ theme(legend.key.height = unit(1,'cm'))
+```
+
+
+# CLUSTER COMPARISON - Calinski-Harabasz Index
+## 1. PAM Clustering
+```{r}
+library(clValid)
+library(fpc)
+
+cluster_assignments = pam_Clustering$clustering
+cluster.stats(gower_df, cluster_assignments)$ch
+```
+
+
+```{r}
+cluster.stats(gower_df, cluster_assignments, silhouette = TRUE)
+```
+
+
+## K-Prototype Clustering
+```{r}
+cluster_assignments = kpres$cluster
+cluster.stats(gower_df, cluster_assignments)$ch
+```
+
+
+```{r}
+cluster.stats(gower_df, cluster_assignments, silhouette = TRUE)
+```
+
+## Inference - 'ch' index of k-prototype has a greater value than k-medoids.
