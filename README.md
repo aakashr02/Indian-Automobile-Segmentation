@@ -4,11 +4,11 @@ This is a Data Analytics and Machine Learning project to analyze and segment the
 ![image](https://github.com/aakashr02/Indian-Automobile-Segmentation/assets/87864552/60799714-7b13-46b4-97ac-deff51d270e3)
 
 ## Results
-###### 1. K-Medoids
+#### 1. K-Medoids
 The following were the cluster centers for the 7 strategic groups obtained using K-Medoids clustering
 ![image](https://github.com/aakashr02/Indian-Automobile-Segmentation/assets/87864552/28e60b32-b7ac-4bb0-91c7-49bacb857e3b)
 
-###### 2. K-Prototypes
+#### 2. K-Prototypes
 The following were the cluster centers for the 2 strategic groups obtained using K-Prototypes clustering
 ![image](https://github.com/aakashr02/Indian-Automobile-Segmentation/assets/87864552/39111dcc-b290-4ac5-9a2f-8499d5f247a9)
 
