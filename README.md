@@ -1,1 +1,1 @@
-
+This is a Data Analytics and Machine Learning project to analyze and segment the car models and its variants in the Indian market using unsupervised algorithms like K-Medoids and K-Prototypes clustering. The results would help automobile brands identify competing car models from other manufacturers.
